@@ -1,66 +1,69 @@
-// solucao vinda de: https://medium.com/@k0612shiva/dining-philosophers-problem-go-concurrency-18bdd10fa72c
+// solucao: https://github.com/iokhamafe/Golang/blob/master/diningphilosophers.go
+
 package main
 
 import (
- "hash/fnv"
- "log"
- "math/rand"
- "os"
- "sync"
- "time"
+	"fmt"
+	"time"
+
+	"sync"
 )
 
-// Number of philosophers is simply the length of this list.
-var ph = []string{"Harvey", "Mike", "Jessica", "Litt", "Robert"}
+var eatWgroup sync.WaitGroup
 
-const hunger = 3                // Number of times each philosopher need to eat before leaving table
-const think = time.Second / 100 //  think time
-const eat = time.Second / 100   //  eat time
+type fork struct{ sync.Mutex }
 
-var fmt = log.New(os.Stdout, "", 0)
+type philosopher struct {
+	id                  int
+	leftFork, rightFork *fork
+}
 
-var dining sync.WaitGroup
+// Goes from thinking to hungry to eating and done eating then starts over.
+// Adapt the pause values to increased or decrease contentions
+// around the forks.
+func (p philosopher) eat() {
+	defer eatWgroup.Done()
+	for j := 0; j < 3; j++ {
+		p.leftFork.Lock()
+		time.Sleep(100 * time.Millisecond) //adicionando um Sleep revela a possibilidade de deadlock nessa implementacao
+		p.rightFork.Lock()
 
-func diningProblem(phName string, left, right *sync.Mutex) {
- fmt.Println(phName + " dined")
- h := fnv.New64a()
- h.Write([]byte(phName))
- rg := rand.New(rand.NewSource(int64(h.Sum64())))
- rSleep := func(t time.Duration) {
-  time.Sleep(t/2 + time.Duration(rg.Int63n(int64(t))))
- }
+		say("eating", p.id)
+		time.Sleep(time.Second)
 
- for h := hunger; h > 0; h-- {
+		p.rightFork.Unlock()
+		p.leftFork.Unlock()
 
-  //locks forks and eat
-  right.Lock()
-  left.Lock()
-  fmt.Println(phName + "eating")
-  rSleep(eat)
+		say("finished eating", p.id)
+		time.Sleep(time.Second)
+	}
 
-  //unlocks forks and thiks
-  right.Unlock()
-  left.Unlock()
-  fmt.Println(phName + "thinking")
-  rSleep(think)
- }
+}
 
- fmt.Println(phName, " satisfied and left")
- dining.Done()
+func say(action string, id int) {
+	fmt.Printf("Philosopher #%d is %s\n", id+1, action)
 }
 
 func main() {
+	// How many philosophers and forks
 
- dining.Add(5)
+	count := 5
 
- f0 := &sync.Mutex{}
- fLeft := f0
- for i := 1; i < len(ph); i++ {
-  fRight := &sync.Mutex{}
-  go diningProblem(ph[i], fLeft, fRight)
-  fLeft = fRight
- }
- go diningProblem(ph[0], f0, fLeft)
+	// Create forks
+	forks := make([]*fork, count)
+	for i := 0; i < count; i++ {
+		forks[i] = new(fork)
+	}
 
- dining.Wait()
+	// Create philospoher, assign them 2 forks and send them to the dining table
+	philosophers := make([]*philosopher, count)
+	for i := 0; i < count; i++ {
+		philosophers[i] = &philosopher{
+			id: i, leftFork: forks[i], rightFork: forks[(i+1)%count]}
+		eatWgroup.Add(1)
+		go philosophers[i].eat()
+
+	}
+	eatWgroup.Wait()
+
 }
